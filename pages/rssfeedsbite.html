@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>When RSS Feeds Bite: How Chrome and Firefox Differ</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: "Helvetica Neue", Arial, sans-serif; line-height: 1.6; color: #333; background: #fff; padding: 2rem; max-width: 800px; margin: auto; }
+    h1 { font-size: 2.5rem; margin-bottom: 1rem; font-weight: 300; }
+    h2 { font-size: 1.75rem; margin: 1.5rem 0 0.75rem; font-weight: 400; border-bottom: 1px solid #eee; padding-bottom: 0.25rem; }
+    h3 { font-size: 1.25rem; margin: 1rem 0 0.5rem; font-weight: 500; }
+    p { margin: 0.75rem 0; }
+    ul, ol { margin: 0.75rem 0 0.75rem 1.5rem; }
+    code { background: #f4f4f4; padding: 0.2em 0.4em; border-radius: 4px; font-family: Menlo, Monaco, monospace; font-size: 0.95em; }
+    pre { background: #f4f4f4; padding: 1rem; border-radius: 4px; overflow-x: auto; margin: 1rem 0; }
+    a { color: #0366d6; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .section { margin-bottom: 2rem; }
+    figure { margin: 1rem 0; text-align: center; }
+    figcaption { font-size: 0.9rem; color: #666; }
+    footer { margin-top: 3rem; text-align: center; font-size: 0.9rem; color: #666; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>When RSS Feeds Bite: How Chrome and Firefox Differ</h1>
+  </header>
+
+  <section class="section">
+    <h2>Introduction: What Is RSS and XSLT?</h2>
+    <h3>RSS (Really Simple Syndication)</h3>
+    <p>RSS is a standardized XML format used to publish and subscribe to frequently updated web content—news headlines, blog posts, announcements, and more. A typical RSS feed contains:</p>
+    <ul>
+      <li><strong>&lt;channel&gt;</strong>: metadata like <code>&lt;title&gt;</code>, <code>&lt;link&gt;</code>, and <code>&lt;description&gt;</code>.</li>
+      <li><strong>&lt;item&gt;</strong>: individual entries, each with its own <code>&lt;title&gt;</code>, <code>&lt;link&gt;</code>, and <code>&lt;description&gt;</code>.</li>
+    </ul>
+
+    <h3>XSLT (eXtensible Stylesheet Language Transformations)</h3>
+    <p>XSLT is a language for transforming XML documents into other text formats—typically HTML. By linking an XSLT stylesheet to an RSS feed via:</p>
+    <pre><code>&lt;?xml-stylesheet type="text/xsl" href="feed.xsl"?&gt;</code></pre>
+    <p>the browser or client can apply templates to render XML as styled HTML in the browser.</p>
+  </section>
+
+  <section class="section">
+    <h2>Browser Processing: Firefox vs. Chromium</h2>
+    <h3>Firefox’s Built-In RSS Viewer</h3>
+    <p>Firefox detects RSS/XML feeds (<code>text/xml</code> or <code>application/rss+xml</code>) and applies an internal XSLT that <strong>escapes</strong> all embedded HTML entities. You see raw tags:</p>
+    <figure>
+      <img src="./image.png" alt="Firefox raw XML view" width="600"/>
+      <figcaption>Firefox displays all HTML tags literally.</figcaption>
+    </figure>
+
+    <h3>Chromium’s XML Rendering</h3>
+    <p>Chromium-based browsers fetch the RSS as XML, apply the linked XSLT, and use <code>disable-output-escaping="yes"</code> to unescape entities. The result is injected via <code>innerHTML</code>, rendering the markup:</p>
+    <figure>
+      <img src="./chrome.png" alt="Chrome rendered HTML view" width="600"/>
+      <figcaption>Chrome decodes and renders HTML inside the description.</figcaption>
+    </figure>
+  </section>
+
+  <section class="section">
+    <h2>Sample RSS + XSLT</h2>
+    <p>Here’s a minimal example demonstrating the pivot:</p>
+    <pre><code>&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;?xml-stylesheet href="feed.xsl" type="text/xsl"?&gt;
+&lt;rss version="2.0"&gt;
+  &lt;channel&gt;
+    &lt;title&gt;Demo Feed&lt;/title&gt;
+    &lt;item&gt;
+      &lt;title&gt;XSS Test&lt;/title&gt;
+      &lt;description&gt;&amp;lt;h1&amp;gt;Hello User&amp;lt;/h1&amp;gt;&lt;/description&gt;
+    &lt;/item&gt;
+  &lt;/channel&gt;
+&lt;/rss&gt;</code></pre>
+    <pre><code><!-- feed.xsl -->
+&lt;xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0"&gt;
+  &lt;xsl:output method="html" indent="yes"/&gt;
+  &lt;xsl:template match="rss/channel"&gt;
+    &lt;h1&gt;&lt;xsl:value-of select="title"/&gt;&lt;/h1&gt;
+    &lt;xsl:for-each select="item"&gt;
+      &lt;h2&gt;&lt;xsl:value-of select="title"/&gt;&lt;/h2&gt;
+      &lt;xsl:value-of select="description" disable-output-escaping="yes"/&gt;
+    &lt;/xsl:for-each&gt;
+  &lt;/xsl:template&gt;
+&lt;/xsl:stylesheet&gt;</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>Scenario: Web App Using RSS for Data Storage</h2>
+    <p>Imagine a web application that accepts user posts via RSS+XSLT as its storage and display mechanism. Contributors submit items, the server writes them to <code>feed.xml</code>, and clients render the feed directly. Without proper sanitization, any user can embed:</p>
+    <pre><code>&lt;description&gt;&amp;lt;script&amp;gt;stealCookie()&amp;lt;/script&amp;gt;&lt;/description&gt;</code></pre>
+    <p>In Firefox, those tags appear inert. In Chrome, they execute on page load, stealing sessions or running arbitrary code.</p>
+
+    <h3>Python Demo Application</h3>
+    <p>Below is a Flask application that captures posts and writes to an RSS feed file. It includes endpoints to submit new items and view the feed:</p>
+    <pre><code>from flask import Flask, Response, request
+import os
+from datetime import datetime
+
+app = Flask(__name__)
+
+temp_file = &quot;temp&quot;
+
+# Ensure temp file exists
+def init_temp():
+    if not os.path.exists(temp_file):
+        open(temp_file, &#39;w&#39;).close()
+
+@app.route(&quot;/&quot;, methods=[&quot;GET&quot;])
+def rss_feed():
+    init_temp()
+    # Read any raw XML items from temp
+    with open(temp_file, &#39;r&#39;, encoding=&#39;utf-8&#39;) as f:
+        raw_items = f.read().strip()
+
+    rss_content = f&quot;&quot;&quot;&lt;?xml version=\&quot;1.0\&quot; encoding=\&quot;utf-8\&quot;?&gt;
+&lt;?xml-stylesheet type=&#39;text/xsl&#39; href=&#39;rss.xsl&#39;?&gt;
+&lt;rss version=\&quot;2.0\&quot;&gt;  
+  &lt;channel&gt;
+    &lt;title&gt;Course 1&lt;/title&gt;
+    &lt;link&gt;https://example.com&lt;/link&gt;
+    &lt;description&gt;Course 1 Announcements RSS Feed&lt;/description&gt;
+    &lt;ttl&gt;60&lt;/ttl&gt;
+{raw_items}
+  &lt;/channel&gt;
+&lt;/rss&gt;&quot;&quot;&quot;
+    return Response(rss_content, mimetype=&#39;text/xml&#39;)
+
+@app.route(&quot;/rss.xsl&quot;, methods=[&quot;GET&quot;])
+def rss_stylesheet():
+    xsl_content = &quot;&quot;&quot;&lt;?xml version=\&quot;1.0\&quot; encoding=\&quot;utf-8\&quot;?&gt;
+&lt;xsl:stylesheet version=\&quot;1.0\&quot;
+  xmlns:xsl=\&quot;http://www.w3.org/1999/XSL/Transform\&quot;&gt;  
+  &lt;xsl:output method=\&quot;html\&quot; indent=\&quot;yes\&quot;/&gt;
+  &lt;xsl:template match=\&quot;rss/channel\&quot;&gt;
+    &lt;html&gt;
+      &lt;head&gt;
+        &lt;title&gt;&lt;xsl:value-of select=\&quot;title\&quot;/&gt;&lt;/title&gt;
+      &lt;/head&gt;
+      &lt;body&gt;
+        &lt;h1&gt;&lt;xsl:value-of select=\&quot;title\&quot;/&gt;&lt;/h1&gt;
+        &lt;div&gt;&lt;xsl:value-of select=\&quot;description\&quot;/&gt;&lt;/div&gt;
+        &lt;xsl:for-each select=\&quot;item\&quot;&gt;
+          &lt;div style=\&quot;border:1px solid #ccc; margin:1em 0; padding:1em;\&quot;&gt;
+            &lt;h2&gt;&lt;xsl:value-of select=\&quot;title\&quot;/&gt;&lt;/h2&gt;
+            &lt;xsl:value-of select=\&quot;description\&quot; disable-output-escaping=\&quot;yes\&quot;/&gt;
+          &lt;/div&gt;
+        &lt;/xsl:for-each&gt;
+      &lt;/body&gt;
+    &lt;/html&gt;
+  &lt;/xsl:template&gt;
+&lt;/xsl:stylesheet&gt;&quot;&quot;&quot;
+    return Response(xsl_content, mimetype=&#39;text/xsl&#39;)
+
+@app.route(&quot;/add&quot;, methods=[&quot;POST&quot;])
+def add_item():
+    init_temp()
+    # Expect raw &lt;item&gt;...&lt;/item&gt; XML in request body
+    xml_item = request.data.decode(&#39;utf-8&#39;).strip()
+    if xml_item.startswith(&#39;&lt;item&#39;) and xml_item.endswith(&#39;&lt;/item&gt;&#39;):
+        with open(temp_file, &#39;a&#39;, encoding=&#39;utf-8&#39;) as f:
+            f.write(xml_item + &#39;\n&#39;)
+        return Response(&#39;Item added&#39;, status=201)
+    else:
+        return Response(&#39;Invalid item XML&#39;, status=400)
+
+if __name__ == &quot;__main__&quot;:
+    app.run(debug=True)
+</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>Attack Scenarios &amp; Mitigations</h2>
+    <h3>Attack Vectors</h3>
+    <ol>
+      <li><strong>Stored XSS:</strong> Scripts run in victim’s browser when loading feed.</li>
+      <li><strong>CSRF:</strong> Use image tags to trigger state-changing endpoints.</li>
+      <li><strong>Phishing:</strong> Embed fake forms or overlays in feed.</li>
+    </ol>
+
+    <h3>Mitigation Strategies</h3>
+    <ul>
+      <li><strong>Server-side Sanitization:</strong> Strip or escape HTML before writing <code>description</code>.</li>
+      <li><strong>Content Security Policy:</strong> <code>script-src 'self'</code>, block inline execution.</li>
+      <li><strong>XSLT Hygiene:</strong> Avoid <code>disable-output-escaping</code> or sanitize entities.</li>
+      <li><strong>Secure Client:</strong> Present “Show HTML” toggle to users.</li>
+    </ul>
+  </section>
+
+  <footer>
+    <p>© 2025 Security Insights. Crafted by Your Name. Feel free to share with attribution.</p>
+  </footer>
+</body>
+</html>
