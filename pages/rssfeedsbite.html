@@ -87,6 +87,7 @@
   </section>
 
   <section class="section">
+    <h1>I Found This Vulnerability on a Real Website But i Can't Disclose it So Let's Imagine the Following Scenario</h1>
     <h2>Scenario: Web App Using RSS for Data Storage</h2>
     <p>Imagine a web application that accepts user posts via RSS+XSLT as its storage and display mechanism. Contributors submit items, the server writes them to <code>feed.xml</code>, and clients render the feed directly. Without proper sanitization, any user can embed:</p>
     <pre><code>&lt;description&gt;&amp;lt;script&amp;gt;stealCookie()&amp;lt;/script&amp;gt;&lt;/description&gt;</code></pre>
