@@ -44,7 +44,7 @@ const observer = new IntersectionObserver((entries) => {
             entry.target.classList.add('fade-in');
             observer.unobserve(entry.target);
         }
-// future more
+// script monitoring test!
     });
 }, observerOptions);
 
