@@ -15,3 +15,9 @@ def read_file(filename):
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         execute_command(sys.argv[1])
+
+# Added path traversal vulnerability for testing
+def download_file(user_path):
+    full_path = "/uploads/" + user_path
+    with open(full_path, "rb") as f:
+        return f.read()
